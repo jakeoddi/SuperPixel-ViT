@@ -79,7 +79,7 @@ class SuperPixelEmbed(nn.Module):
         # use superpixel index for regular image index - they're the same size
         # can also loop through each label and extract number using a mask
         # i'll do the former
-        for s in 
+         
 
         # do I have each sp channel consecutively followed by padding or each
         # sp channel separated by padding
@@ -87,7 +87,8 @@ class SuperPixelEmbed(nn.Module):
         # loop to create tensor for each superpixel, padding zeros via: max - current_len
 
 
-        return segmented 
+        # return segmented 
+        return segment_map, segment_labels, largest
 
 
     def _get_largest(smap, labels): 
@@ -210,6 +211,7 @@ class SuperPixelMeanEmbed(SuperPixelPadEmbed):
     def __init__(self, img_size=224, superpixels=196, in_chans=3, embed_dim=768, mask=None, norm_layer=None, conv=False):
         super().__init__()
         self.conv = conv
+        self.seg_arr = []
         # compute size of square patch based on number of superpixels we want to compute
         self.p = self.img_size//self.superpixels**0.5
         # making sure the image contains a whole number of patches
@@ -221,38 +223,56 @@ class SuperPixelMeanEmbed(SuperPixelPadEmbed):
 
 
     @Override
-    def forward(self, img):
+    def forward(self, X):
         """
         Computes superpixel embeddings for a batch of images `img`
 
         Parameters
         ----------
-        x: torch.Tensor() representing a batch of images with shape (batch_size, superpixels, embed_dim)
+        X: torch.Tensor() representing a batch of images with shape (batch_size, superpixels, embed_dim)
         """
-        # get image as array to compute superpixels
-        img_arr = img.numpy()
-        # compute superpixel segmentation
-        seg = _create_segments(img_arr)
-        # get square patch dimension
+        # get square patch dimension to compute individual pixel embedding
         patch_dim = self.in_chans * self.p**2
+
+        # define linear embedding for individual pixels
+        pix_embed = nn.Linear(patch_dim, patch_dim)
 
         # compute embedded feature for each pixel
         # METHOD 1 - CONVOLUTION
         if self.conv:
-            x = self.conv_proj(img)
+            x_emb = self.conv_proj(X)
         # METHOD 2 - RESHAPE
         else:
-            x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = self.p, p2 = self.p)
+            # reshape according to patches
+            x_emb = rearrange(X, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = self.p, p2 = self.p)
+            # linear projection
+            x_emb = pix_embed(x_emb)
+
+        # compute segment map for each individual image in batch
+        for i, x in enumerate(X):
+            # get image as array to compute superpixels
+            img_arr = x.numpy()
+            # compute superpixel segmentation
+            seg_map, seg_unique, largest_sp  = _create_segments(img_arr)
+                
+
+
+
+            # ask huy about which way we should embed pixels 
+
+                
+
+
             # linear layer for projecting patches to embed dim - THIS IS WRONG I think
             lin_embed = nn.Linear(patch_dim, embed_dim)  # need to fix
             x = lin_embed(x)
 
-        if self.norm:
-            x = norm(x)
-        
-        # compute each superpixel feature from average of embedded 
-        # component-pixel features
-        # _create_segments needs to be fixed so it returns something less specific
+            if self.norm:
+                x = norm(x)
+            
+            # compute each superpixel feature from average of embedded 
+            # component-pixel features
+            # _create_segments needs to be fixed so it returns something less specific
 
         
 
