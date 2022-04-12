@@ -45,7 +45,7 @@ class Attention(nn.Module):
             nn.Dropout(dropout)
         )
 
-        # MASK HERE
+        # MASK HERE -- if using padded superpixels
     def forward(self, x, mask = None):
         b, n, _, h = *x.shape, self.heads
         qkv = self.to_qkv(x).chunk(3, dim = -1)
