@@ -5,9 +5,14 @@
 # Data 
 data/
 
+# Batch Script
+run-superpixel.SBATCH
+
 # Checkpoints, Logs
 notebooks/checkpoint/
 notebooks/log/
+checkpoint
+log
 
 # IntelliJ project files
 .idea
