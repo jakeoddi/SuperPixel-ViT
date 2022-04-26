@@ -228,7 +228,7 @@ class SuperPixelMeanEmbed(SuperPixelPadEmbed):
         self.img_size = img_size
         self.superpixels = superpixels
         self.in_chans = in_chans
-        self.embed_dim = 768
+        self.embed_dim = embed_dim
         self.mask = mask
         self.norm_layer = norm_layer
         self.conv = conv
@@ -244,6 +244,7 @@ class SuperPixelMeanEmbed(SuperPixelPadEmbed):
 
         # define embedding layer
         if conv:
+            # TODO: change embed dim to 8, 16, or 64
             self.conv_proj = nn.Conv2d(in_chans, img_size//4, kernel_size=(1,1), stride=1)
         else:
             # define linear embedding layer for individual pixels
@@ -372,7 +373,7 @@ class SuperPixelMeanEmbed(SuperPixelPadEmbed):
             for j, m in enumerate(seg_unique):
                 # compute mask with only the value of the mth superpixel
                 mask = torch.eq(seg_map_tens, m).to(device)
-                # ensuring x is on device
+                # ensuring the input is on device
                 
                 # use mask to get mean of pixel embeddings in superpixel m for each channel in x
                 # in an image with 3 channels, this is a list of length 3
