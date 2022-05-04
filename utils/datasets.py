@@ -5,7 +5,7 @@ Based on:
 https://pytorch.org/vision/stable/generated/torchvision.datasets.CIFAR10.html
 
 Author: Jake Oddi
-Last Modified: 04-25-2022
+Last Modified: 05-03-2022
 """
 
 import torch
@@ -14,7 +14,7 @@ from skimage.segmentation import slic
 from torchvision.datasets import CIFAR10
 
 class CIFAR10MeanEmbed(CIFAR10):
-    """CIFAR10 with Mean Embedded Superpixels"""
+    """CIFAR10 with Mean Embedded Superpixels Computed at Load Time"""
 
     def __init__(
         self,
@@ -24,14 +24,18 @@ class CIFAR10MeanEmbed(CIFAR10):
         download=False, 
         transform=None, 
         ):
-        super().__init__(root=root, train=train, download=download, transform=transform)
+        super().__init__(root=root, 
+            train=train, 
+            download=download, 
+            transform=transform
+        )
         self.superpixels = superpixels
         self.transform = transform
 
     def __len__(self):
         return super().__len__()
 
-    def __getitem__(self, index): #TODO: figure out if we want to do the entire superpixel embedding in the Dataset
+    def __getitem__(self, index):
         img, target = super().__getitem__(index)
 
         # set device
@@ -39,46 +43,42 @@ class CIFAR10MeanEmbed(CIFAR10):
         # get image as array to compute superpixels
         img_arr = img.cpu().detach().numpy()
         # compute superpixel segmentation
-        seg_map, seg_unique, largest_sp  = self.create_segments(img_arr)
+        seg_map, seg_unique, largest_sp  = self._create_segments(img_arr)
         # get segment map as tensor
         seg_map_tens = torch.from_numpy(seg_map)
         # initialize empty list to store superpixels for image `x`
-        im_sps = []
+        masks = []
 
         # compute mean embedding for each superpixel
-        for j, m in enumerate(seg_unique):
+        for m in seg_unique:
             # compute mask with only the value of the mth superpixel
-            mask = torch.eq(seg_map_tens, m).to(device)
+            mask = torch.eq(seg_map_tens, m)#.to(device)
             # ensuring the input is on device
             
-            # use mask to get mean of pixel embeddings in superpixel m for each channel in x
-            # in an image with 3 channels, this is a list of length 3
-            means = [torch.mean(
-                torch.masked_select(x[c, :, :], mask)
-                ) for c in range(x.size()[0])]
-            # convert list to tensor
-            means = torch.Tensor(means)
-            # add to list of superpixels
-            im_sps.append(means)
+            # add to list of masks
+            masks.append(mask)
 
         # stack superpixels for image `x`
-        im_sps = torch.stack(im_sps, dim=0)
+        masks = torch.stack(masks)
+        # masks = torch.Tensor(tuple(masks))
 
-        return im_sps, target
+        return (img, masks), target
 
-    def create_segments(self, img_arr):
+    def _create_segments(self, img_arr):
         """
         Creates segments for one image at a time. Then parallelized accross
         the entire batch.
 
         Parameters
         ----------
-        img_arr: np.Array() of an image, with shape (in_chans x img_size x img_size)
+        img_arr: np.Array() of an image, with shape 
+        (in_chans x img_size x img_size)
 
 
         Returns
         -------
-        segmented: torch.Tensor() with shape (num_patches x largest_patch_length*in_chans)
+        segmented: torch.Tensor() with shape 
+        (num_patches x largest_patch_length*in_chans)
         """
         # reshape input array to be passed through segmentation
         # (img_size x img_size x in_chans) -> (in_chans x img_size x img_size)
@@ -94,13 +94,13 @@ class CIFAR10MeanEmbed(CIFAR10):
         segment_labels = np.unique(segment_map)
 
         # get length of largest superpixel
-        largest = self.get_largest(segment_map, segment_labels)
+        largest = self._get_largest(segment_map, segment_labels)
  
         return segment_map, segment_labels, largest
 
 
 
-    def get_largest(self, smap, labels): 
+    def _get_largest(self, smap, labels): 
         """
         function for getting size of largest superpixel
 

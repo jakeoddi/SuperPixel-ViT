@@ -8,6 +8,9 @@ data/
 # Batch Script
 run-superpixel.SBATCH
 
+# Slurm output
+*.out
+
 # Checkpoints, Logs
 notebooks/checkpoint/
 notebooks/log/

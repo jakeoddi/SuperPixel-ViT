@@ -46,6 +46,7 @@ import matplotlib.pyplot as plt
 
 
 from embed import superpixel_embed
+from utils import datasets
 
 
 # --------------- args
@@ -279,6 +280,7 @@ class ViT(nn.Module):
 #         self.patch_to_embedding = nn.Linear(patch_dim, dim)
         self.patch_to_embedding = superpixel_embed.SuperPixelMeanEmbed(img_size=image_size, superpixels=64, in_chans=channels, embed_dim=96)
         
+        #TODO: add another embedding for the embedded superpixels
         
         
         self.cls_token = nn.Parameter(torch.randn(1, 1, dim))
@@ -296,11 +298,11 @@ class ViT(nn.Module):
             nn.Linear(mlp_dim, num_classes)
         )
 
-    def forward(self, img, mask = None):
+    def forward(self, img, masks, mask = None):
         p = self.patch_size
         
 #       to here
-        x = self.patch_to_embedding(img)
+        x = self.patch_to_embedding(img, masks)
         
         x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = p, p2 = p)
         
@@ -363,8 +365,8 @@ transform_test = transforms.Compose([
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
 
-trainset = torchvision.datasets.CIFAR10(root='../data', train=True, download=True, transform=transform_train)
-# trainset = datasets.CIFAR10MeanEmbed(superpixels=16, root='../data', train=True, download=True, transform=transform_train)
+# trainset = torchvision.datasets.CIFAR10(root='../data', train=True, download=True, transform=transform_train)
+trainset = datasets.CIFAR10MeanEmbed(superpixels=64, root='../data', train=True, download=True, transform=transform_train)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=8)
 
 testset = torchvision.datasets.CIFAR10(root='../data', train=False, download=True, transform=transform_test)
@@ -436,10 +438,10 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
-    for batch_idx, (inputs, targets) in enumerate(trainloader):
-        inputs, targets = inputs.to(device), targets.to(device)
+    for batch_idx, ((inputs, masks), targets) in enumerate(trainloader):
+        inputs, masks, targets = inputs.to(device), masks.to(device), targets.to(device)
         optimizer.zero_grad()
-        outputs = net(inputs)
+        outputs = net(inputs, masks)
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
@@ -463,9 +465,9 @@ def test(epoch):
     correct = 0
     total = 0
     with torch.no_grad():
-        for batch_idx, (inputs, targets) in enumerate(testloader):
-            inputs, targets = inputs.to(device), targets.to(device)
-            outputs = net(inputs)
+        for batch_idx, ((inputs, masks), targets) in enumerate(testloader):
+            inputs, masks, targets = inputs.to(device), masks.to(device), targets.to(device)
+            outputs = net(inputs, masks)
             loss = criterion(outputs, targets)
 
             test_loss += loss.item()
