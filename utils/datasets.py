@@ -79,7 +79,7 @@ class CIFAR10MeanEmbed(CIFAR10):
 
         # set device
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        if True: # use pre-computed masks
+        if False: # use pre-computed masks
             masks_np = np.load('superpixels_CIFAR10MeanEmbed/'+str(index)+'.npy')
             masks = torch.Tensor(masks_np).to(torch.bool) #torch.Size([64, 32, 32])
             #print("masks.shape ", masks.shape)

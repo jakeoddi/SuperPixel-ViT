@@ -257,23 +257,29 @@ class SuperPixelMeanEmbed(SuperPixelEmbed):
         batch_sps = []
         # compute segment map for each embedded image in batch
         for i, x in enumerate(x_emb):
-            im_sps = [] # Elena
-
             # get masks for image at index i
             masks_i = masks[i]
             # compute mean embedding for each superpixel
+            im_sps = [x[:,mask].mean(dim=1) for mask in masks_i]
             
-            for mask in masks_i:
+#             for mask in masks_i:
+#                 # use mask to get mean of pixel embeddings in superpixel m for each channel in x
+#                 # in an image with 3 channels, this is a list of length 3
 
-                # use mask to get mean of pixel embeddings in superpixel m for each channel in x
-                # in an image with 3 channels, this is a list of length 3
-                means = [torch.mean(
-                    torch.masked_select(x[c, :, :], mask)
-                    ) for c in range(x.size()[0])]
-                # convert list to tensor
-                means = torch.Tensor(means)
-                # add to list of superpixels
-                im_sps.append(means)
+#                 means1 = x[:,mask].mean(dim=1)
+#                 im_sps.append(means1)
+                
+# #             for mask in masks_i:
+
+# #                 # use mask to get mean of pixel embeddings in superpixel m for each channel in x
+# #                 # in an image with 3 channels, this is a list of length 3
+# #                 means = [torch.mean(
+# #                     torch.masked_select(x[c, :, :], mask)
+# #                     ) for c in range(x.size()[0])]
+# #                 # convert list to tensor
+# #                 means = torch.Tensor(means)
+# #                 # add to list of superpixels
+# #                 im_sps.append(means)
 
             # stack superpixels for image `x`
             im_sps = torch.stack(im_sps, dim=0)
