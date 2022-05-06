@@ -7,7 +7,7 @@ the implementation in https://github.com/rwightman/pytorch-image-models/
 Author: Jake Oddi
 Last Modified: 04-18-2022
 """
-
+import time
 import torch
 import numpy as np
 from torch import nn as nn
@@ -246,6 +246,7 @@ class SuperPixelMeanEmbed(SuperPixelEmbed):
         ----------
         X: torch.Tensor() representing a batch of images with shape (batch_size, in_chans, height, width)
         """
+        start_time = time.time()
         # get batch size
         batch_size = X.size()[0]
 
@@ -254,15 +255,16 @@ class SuperPixelMeanEmbed(SuperPixelEmbed):
             x_emb = self.conv_proj(X)
         # initialize empty list to store superpixel matrices for all images in batch `i`
         batch_sps = []
-  
         # compute segment map for each embedded image in batch
         for i, x in enumerate(x_emb):
+            im_sps = [] # Elena
 
             # get masks for image at index i
             masks_i = masks[i]
             # compute mean embedding for each superpixel
+            
             for mask in masks_i:
-                
+
                 # use mask to get mean of pixel embeddings in superpixel m for each channel in x
                 # in an image with 3 channels, this is a list of length 3
                 means = [torch.mean(
@@ -283,5 +285,6 @@ class SuperPixelMeanEmbed(SuperPixelEmbed):
 
 #         if self.norm:   THIS CAUSED PROBLEMS, FIX LATER
 #             batch_sps = norm_layer(batch_sps)
-
+        total_time = time.time() - start_time
+        print('embedding time %.2f' % total_time)
         return batch_sps 

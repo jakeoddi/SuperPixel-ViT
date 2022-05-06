@@ -367,7 +367,7 @@ transform_test = transforms.Compose([
 
 # trainset = torchvision.datasets.CIFAR10(root='../data', train=True, download=True, transform=transform_train)
 trainset = datasets.CIFAR10MeanEmbed(superpixels=64, root='../data', train=True, download=True, transform=transform_train)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=8)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
 
 testset = torchvision.datasets.CIFAR10(root='../data', train=False, download=True, transform=transform_test)
 testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=8)
@@ -438,7 +438,9 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
+    num_batches = len(trainloader)
     for batch_idx, ((inputs, masks), targets) in enumerate(trainloader):
+        start_time = time.time()
         inputs, masks, targets = inputs.to(device), masks.to(device), targets.to(device)
         optimizer.zero_grad()
         outputs = net(inputs, masks)
@@ -450,9 +452,11 @@ def train(epoch):
         _, predicted = outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
-
-        progress_bar(batch_idx, len(trainloader), 'Train Loss: %.3f | Train Acc: %.3f%% (%d/%d)'
-            % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
+        accuracy = predicted.eq(targets).sum().item()
+        end_time = time.time() - start_time
+        print('batch %i/%i loss %.3f acc %.3f time %.2f' % (batch_idx, num_batches, loss.item(), accuracy, end_time))
+        #progress_bar(batch_idx, len(trainloader), 'Train Loss: %.3f | Train Acc: %.3f%% (%d/%d)'
+        #    % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
     return train_loss/(batch_idx+1)
 
 
