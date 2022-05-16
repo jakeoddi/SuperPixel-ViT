@@ -5,7 +5,7 @@ Based on:
 https://pytorch.org/vision/stable/generated/torchvision.datasets.CIFAR10.html
 
 Author: Jake Oddi
-Last Modified: 05-03-2022
+Last Modified: 05-16-2022
 """
 import os
 import torch
@@ -106,20 +106,30 @@ class CIFAR10MeanEmbed(CIFAR10):
                 # add to list of masks
                 masks.append(mask)
             # duplicate masks to make up to 64: Elena
-            if len(masks) < self.superpixels:
+            # case not enough superpixels
+            while len(masks) < self.superpixels:
                 rand_ind = random.sample(range(len(masks)), self.superpixels-len(masks))
-                for ind in rand_ind:
-                    masks.append(masks[ind])
+                # for ind in rand_ind:
+                #     masks.append(masks[ind])
+                masks.append(masks[rand_ind[0]])
+            
+            # case too many superpixels
+            if len(masks) > self.superpixels:
+                masks = masks[:self.superpixels]
 
             # stack superpixels for image `x`
             masks = torch.stack(masks)
             # masks = torch.Tensor(tuple(masks))
             #print('HERE')
 
-            assert(masks.shape[0]==self.superpixels) 
-#         if masks.shape[0]!=64:
-#             from pdb import set_trace
-#             set_trace()
+            if masks.shape[0]!=self.superpixels:
+                print(masks.shape[0])
+                from pdb import set_trace
+                set_trace()
+                assert(masks.shape[0]==self.superpixels) 
+
+            # from pdb import set_trace
+            # set_trace()
         #print("img.shape  ", img.shape, " masks.shape ", masks.shape, " target ", target)
         
         return (img, masks), target
