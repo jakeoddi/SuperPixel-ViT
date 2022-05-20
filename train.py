@@ -26,14 +26,12 @@ from skimage.segmentation import slic
 from skimage.segmentation import mark_boundaries
 from skimage.util import img_as_float
 from skimage import io
-import matplotlib.pyplot as plt
 
 import os
 import sys
 import time
 import math
 
-import torch.nn as nn
 import torch.nn.init as init
 
 from einops import rearrange
@@ -42,7 +40,6 @@ from skimage.segmentation import slic
 from skimage.segmentation import mark_boundaries
 from skimage.util import img_as_float
 from skimage import io
-import matplotlib.pyplot as plt
 
 
 from embed import superpixel_embed
@@ -60,6 +57,9 @@ heads = 8
 mlp_dim = 512
 dropout_prob = 0.1
 emb_dropout = 0.1
+cifar = False
+imagenet = True
+sp_arg = True
 
 
 # ----------------
@@ -277,10 +277,13 @@ class ViT(nn.Module):
         
         
         
-#         self.patch_to_embedding = nn.Linear(patch_dim, dim)
-        self.patch_to_embedding = superpixel_embed.SuperPixelMeanEmbed(img_size=image_size, superpixels=64, in_chans=channels, embed_dim=64)
+
+        if sp_arg:
+            self.patch_to_embedding = superpixel_embed.SuperPixelMeanEmbed(img_size=image_size, superpixels=64, in_chans=channels, embed_dim=dim)
+            #TODO: add another embedding for the embedded superpixels
+        else:
+            self.patch_to_embedding = nn.Linear(patch_dim, dim)
         
-        #TODO: add another embedding for the embedded superpixels
         
         
         self.cls_token = nn.Parameter(torch.randn(1, 1, dim))
@@ -301,17 +304,14 @@ class ViT(nn.Module):
     def forward(self, img, masks, mask = None):
         p = self.patch_size
         
-#       to here
-        x = self.patch_to_embedding(img, masks)
-        
-        # removed 5/16/22 - don't think this should be done
-        # x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = p, p2 = p) 
-        
-        
-        
-#         moved from here
-#         x = self.patch_to_embedding(x)
-        
+
+        if sp_arg:
+            x = self.patch_to_embedding(img, masks)
+            # removed 5/16/22 - don't think this should be done - uncomment and change dim back to 48 in ViT instantiation
+            x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = p, p2 = p) 
+        else: 
+            x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = p, p2 = p) 
+            x = self.patch_to_embedding(img, masks)
         
         
         b, n, _ = x.shape
@@ -366,14 +366,37 @@ transform_test = transforms.Compose([
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
 
-# trainset = torchvision.datasets.CIFAR10(root='../data', train=True, download=True, transform=transform_train)
-trainset = datasets.CIFAR10MeanEmbed(superpixels=64, root='../data', train=True, download=True, transform=transform_train)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
+if sp_arg:
+    if cifar:
+        
+        trainset = datasets.CIFAR10MeanEmbed(superpixels=64, root='../data', train=True, download=True, transform=transform_train)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
 
-testset = datasets.CIFAR10MeanEmbed(superpixels=64, root='../data', train=False, download=True, transform=transform_test)
-testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
+        testset = datasets.CIFAR10MeanEmbed(superpixels=64, root='../data', train=False, download=True, transform=transform_test)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
+        classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+        
+    elif imagenet:
 
-classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+        trainset = datasets.ImageNetMeanEmbed(superpixels=194, root='../data', train=True, download=True, transform=transform_train)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
+
+        testset = datasets.ImageNetMeanEmbed(superpixels=194, root='../data', train=False, download=True, transform=transform_test)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
+else:
+    if cifar:
+        trainset = torchvision.datasets.CIFAR10(root='../data', train=True, download=True, transform=transform_train)
+
+    if imagenet:
+        dataset = datasets.ImageFolder(args.data_path, transform=transform)
+
+        trainset = datasets.ImageNetMeanEmbed(superpixels=194, root='/scratch/work/public/imagenet/', train=True, transform=transform_train)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
+
+        testset = datasets.ImageNetMeanEmbed(superpixels=194, root='../data', train=False, transform=transform_test)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
+
+
 
 # ------------------
 
@@ -384,14 +407,14 @@ assert num_patches > MIN_NUM_PATCHES, f'your number of patches ({num_patches}) i
 
 # --------------------------
 
-
+superpixels = 64
 # ViT for cifar10
 net = ViT(
     image_size = 32,
     patch_size = patch,
     num_classes = 10,
 #     dim = 512, "got size 512 but expected 48" error
-    dim=48,
+    dim= superpixels, # change back to 48
     depth = 6,
     heads = 8,
     mlp_dim = 512,
