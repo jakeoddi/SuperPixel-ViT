@@ -140,7 +140,7 @@ class SuperPixelMeanEmbed(SuperPixelEmbed):
     (batch_size x superpixels x in_chans)
 
     """
-    def __init__(self, img_size=224, superpixels=196, in_chans=3, embed_dim=64, mask=None, norm_layer=None, conv=True):
+    def __init__(self, img_size=224, superpixels=196, in_chans=3, embed_dim=32, mask=None, norm_layer=None, conv=True):
         super().__init__(
             img_size=img_size,
             superpixels=superpixels,

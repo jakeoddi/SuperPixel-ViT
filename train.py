@@ -47,7 +47,8 @@ from utils import datasets
 
 
 # --------------- args
-image_size = 32
+image_size_cifar = 32
+image_size_imagenet = 224
 patch_size = 4
 num_classes = 10
 channels = 3
@@ -57,11 +58,10 @@ heads = 8
 mlp_dim = 512
 dropout_prob = 0.1
 emb_dropout = 0.1
+
 cifar = False
 imagenet = True
 sp_arg = True
-
-
 # ----------------
 
 
@@ -265,7 +265,7 @@ class Transformer(nn.Module):
         return x
 
 class ViT(nn.Module):
-    def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, channels = 3, dropout = 0., emb_dropout = 0.):
+    def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, superpixels, channels = 3, dropout = 0., emb_dropout = 0.):
         super().__init__()
         assert image_size % patch_size == 0, 'image dimensions must be divisible by the patch size'
         num_patches = (image_size // patch_size) ** 2
@@ -279,7 +279,7 @@ class ViT(nn.Module):
         
 
         if sp_arg:
-            self.patch_to_embedding = superpixel_embed.SuperPixelMeanEmbed(img_size=image_size, superpixels=64, in_chans=channels, embed_dim=dim)
+            self.patch_to_embedding = superpixel_embed.SuperPixelMeanEmbed(img_size=image_size, superpixels=superpixels, in_chans=channels, embed_dim=dim)
             #TODO: add another embedding for the embedded superpixels
         else:
             self.patch_to_embedding = nn.Linear(patch_dim, dim)
@@ -301,23 +301,40 @@ class ViT(nn.Module):
             nn.Linear(mlp_dim, num_classes)
         )
 
-    def forward(self, img, masks, mask = None):
+    def forward(self, img, masks = None, mask = None):
+        """
+        masks: superpixel masks
+        mask: self attention mask
+        """
         p = self.patch_size
         
 
         if sp_arg:
             x = self.patch_to_embedding(img, masks)
+            # print('patch_to_embedding size', x.size())
             # removed 5/16/22 - don't think this should be done - uncomment and change dim back to 48 in ViT instantiation
-            x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = p, p2 = p) 
+            if cifar:
+                x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = p, p2 = p)
+            elif imagenet:
+                None
+                # x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = 14, p2 = 14)
+                # print('rearrange size', x.size())
         else: 
-            x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = p, p2 = p) 
-            x = self.patch_to_embedding(img, masks)
+            if cifar:
+                x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = p, p2 = p) 
+            elif imagenet:
+                x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = 14, p2 = 14)
+            x = self.patch_to_embedding(x)
         
         
         b, n, _ = x.shape
 
         cls_tokens = self.cls_token.expand(b, -1, -1)
         x = torch.cat((cls_tokens, x), dim=1)
+        # print('x.size(): ', x.size())
+        # print('pos_embedding.size(): ', self.pos_embedding.size())
+        # print('n: ', n)
+        # print('pos_embedding[:, :(n+1)].size(): ', self.pos_embedding[:, :(n+1)].size())
         x += self.pos_embedding[:, :(n + 1)]
         x = self.dropout(x)
 
@@ -338,7 +355,6 @@ mixup=1    # add mixup augumentations
 #net=vit
 bs=64
 n_epochs=100
-patch=4
 cos=0      # Train with cosine annealing scheduling
 
 if cos:
@@ -354,17 +370,29 @@ start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
 # Data
 print('==> Preparing data..')
-transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-])
-
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-])
+if cifar:
+    transform_train = transforms.Compose([
+        transforms.RandomCrop(image_size_cifar, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
+    transform_test = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
+elif imagenet:
+    transform_train = transforms.Compose([
+        transforms.RandomResizedCrop(image_size_imagenet),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
+    transform_test = transforms.Compose([
+        transforms.RandomResizedCrop(image_size_imagenet),
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
 
 if sp_arg:
     if cifar:
@@ -377,28 +405,34 @@ if sp_arg:
         classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
         
     elif imagenet:
-
-        trainset = datasets.ImageNetMeanEmbed(superpixels=194, root='../data', train=True, download=True, transform=transform_train)
+        trainset = datasets.ImageFolderMeanEmbed(superpixels=196, root='/imagenet/train', transform=transform_train)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
 
-        testset = datasets.ImageNetMeanEmbed(superpixels=194, root='../data', train=False, download=True, transform=transform_test)
+        testset = datasets.ImageFolderMeanEmbed(superpixels=196, root='/imagenet/val', transform=transform_test)
         testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
 else:
     if cifar:
         trainset = torchvision.datasets.CIFAR10(root='../data', train=True, download=True, transform=transform_train)
-
-    if imagenet:
-        dataset = datasets.ImageFolder(args.data_path, transform=transform)
-
-        trainset = datasets.ImageNetMeanEmbed(superpixels=194, root='/scratch/work/public/imagenet/', train=True, transform=transform_train)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
 
-        testset = datasets.ImageNetMeanEmbed(superpixels=194, root='../data', train=False, transform=transform_test)
+        trainset = torchvision.datasets.CIFAR10(root='../data', train=False, download=True, transform=transform_test)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
+
+    elif imagenet:
+        trainset = torchvision.datasets.ImageFolder(root='/imagenet/train', transform=transform_train)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
+
+        testset = torchvision.datasets.ImageFolder(root='/imagenet/val', transform=transform_test)
         testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
 
 
 
 # ------------------
+
+if cifar:
+    image_size = image_size_cifar
+elif imagenet:
+    image_size = image_size_imagenet
 
 assert image_size % patch_size == 0, 'image dimensions must be divisible by the patch size'
 num_patches = (image_size // patch_size) ** 2
@@ -407,20 +441,40 @@ assert num_patches > MIN_NUM_PATCHES, f'your number of patches ({num_patches}) i
 
 # --------------------------
 
-superpixels = 64
-# ViT for cifar10
-net = ViT(
-    image_size = 32,
-    patch_size = patch,
-    num_classes = 10,
-#     dim = 512, "got size 512 but expected 48" error
-    dim= superpixels, # change back to 48
-    depth = 6,
-    heads = 8,
-    mlp_dim = 512,
-    dropout = 0.1,
-    emb_dropout = 0.1
-)
+if cifar:
+    superpixels = 64
+    patch = 4
+    # ViT for cifar10
+    net = ViT(
+        image_size = image_size_cifar,
+        patch_size = patch,
+        num_classes = 10,
+    #     dim = 512, "got size 512 but expected 48" error
+        dim= 48, # change back to 48
+        depth = 6,
+        heads = 8,
+        mlp_dim = 512,
+        superpixels = superpixels,
+        dropout = 0.1,
+        emb_dropout = 0.1
+    )
+elif imagenet:
+    superpixels = 196
+    patch = 14
+    # ViT for imagenet
+    net = ViT(
+        image_size = image_size_imagenet,
+        patch_size = patch,
+        num_classes = 1000,
+    #     dim = 512, "got size 512 but expected 48" error
+        dim= 48, # change back to 48
+        depth = 6,
+        heads = 8,
+        mlp_dim = 512,
+        superpixels = superpixels,
+        dropout = 0.1,
+        emb_dropout = 0.1
+    )
 
 # -------------------------
 
@@ -463,25 +517,43 @@ def train(epoch):
     correct = 0
     total = 0
     num_batches = len(trainloader)
-    for batch_idx, ((inputs, masks), targets) in enumerate(trainloader):
-        start_time = time.time()
-        inputs, masks, targets = inputs.to(device), masks.to(device), targets.to(device)
-        optimizer.zero_grad()
-        outputs = net(inputs, masks)
-        loss = criterion(outputs, targets)
-        loss.backward()
-        optimizer.step()
+    if sp_arg:
+        for batch_idx, ((inputs, masks), targets) in enumerate(trainloader):
+            start_time = time.time()
+            inputs, masks, targets = inputs.to(device), masks.to(device), targets.to(device)
+            optimizer.zero_grad()
+            outputs = net(inputs, masks)
+            loss = criterion(outputs, targets)
+            loss.backward()
+            optimizer.step()
 
-        train_loss += loss.item()
-        _, predicted = outputs.max(1)
-        total += targets.size(0)
-        correct += predicted.eq(targets).sum().item()
-        accuracy = predicted.eq(targets).sum().item()
-        end_time = time.time() - start_time
-        print('batch %i/%i loss %.3f acc %.3f time %.2f' % (batch_idx, num_batches, loss.item(), accuracy, end_time))
-        #progress_bar(batch_idx, len(trainloader), 'Train Loss: %.3f | Train Acc: %.3f%% (%d/%d)'
-        #    % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
-    return train_loss/(batch_idx+1)
+            train_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += targets.size(0)
+            correct += predicted.eq(targets).sum().item()
+            accuracy = predicted.eq(targets).sum().item()
+            end_time = time.time() - start_time
+            print('batch %i/%i loss %.3f acc %.3f time %.2f' % (batch_idx, num_batches, loss.item(), accuracy, end_time))
+            progress_bar(batch_idx, len(trainloader), 'Train Loss: %.3f | Train Acc: %.3f%% (%d/%d)'
+               % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
+        return train_loss/(batch_idx+1)
+    else:
+        for batch_idx, (inputs, targets) in enumerate(trainloader):
+            inputs, targets = inputs.to(device), targets.to(device)
+            optimizer.zero_grad()
+            outputs = net(inputs)
+            loss = criterion(outputs, targets)
+            loss.backward()
+            optimizer.step()
+
+            train_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += targets.size(0)
+            correct += predicted.eq(targets).sum().item()
+
+            progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
+                % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
+        return train_loss/(batch_idx+1)       
 
 
 # --------------
@@ -493,18 +565,32 @@ def test(epoch):
     correct = 0
     total = 0
     with torch.no_grad():
-        for batch_idx, ((inputs, masks), targets) in enumerate(testloader):
-            inputs, masks, targets = inputs.to(device), masks.to(device), targets.to(device)
-            outputs = net(inputs, masks)
-            loss = criterion(outputs, targets)
+        if sp_arg: 
+            for batch_idx, ((inputs, masks), targets) in enumerate(testloader):
+                inputs, masks, targets = inputs.to(device), masks.to(device), targets.to(device)
+                outputs = net(inputs, masks)
+                loss = criterion(outputs, targets)
 
-            test_loss += loss.item()
-            _, predicted = outputs.max(1)
-            total += targets.size(0)
-            correct += predicted.eq(targets).sum().item()
+                test_loss += loss.item()
+                _, predicted = outputs.max(1)
+                total += targets.size(0)
+                correct += predicted.eq(targets).sum().item()
 
-            progress_bar(batch_idx, len(testloader), 'Test Loss: %.3f | Test Acc: %.3f%% (%d/%d)'
-                % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
+                progress_bar(batch_idx, len(testloader), 'Test Loss: %.3f | Test Acc: %.3f%% (%d/%d)'
+                    % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
+        else:
+            for batch_idx, (inputs, targets) in enumerate(testloader):
+                inputs, targets = inputs.to(device), targets.to(device)
+                outputs = net(inputs)
+                loss = criterion(outputs, targets)
+
+                test_loss += loss.item()
+                _, predicted = outputs.max(1)
+                total += targets.size(0)
+                correct += predicted.eq(targets).sum().item()
+
+                progress_bar(batch_idx, len(testloader), 'Test Loss: %.3f | Test Acc: %.3f%% (%d/%d)'
+                    % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))            
     
     # Update scheduler
     if not cos:

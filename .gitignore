@@ -6,7 +6,7 @@
 data/
 
 # Batch Script
-run-superpixel.SBATCH
+*.SBATCH
 
 # Slurm output
 *.out

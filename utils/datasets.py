@@ -5,7 +5,7 @@ Based on:
 https://pytorch.org/vision/stable/generated/torchvision.datasets.CIFAR10.html
 
 Author: Jake Oddi
-Last Modified: 05-16-2022
+Last Modified: 05-20-2022
 """
 import os
 import torch
@@ -14,6 +14,76 @@ from tqdm import tqdm
 import numpy as np
 from skimage.segmentation import slic
 from torchvision.datasets import CIFAR10, ImageFolder
+
+
+def create_segments(self, img_arr, superpixels):
+    """
+    Creates segments for one image at a time. Then parallelized accross
+    the entire batch.
+
+    Parameters
+    ----------
+    img_arr: np.Array() of an image, with shape 
+    (in_chans x img_size x img_size)
+
+
+    Returns
+    -------
+    segmented: torch.Tensor() with shape 
+    (num_patches x largest_patch_length*in_chans)
+    """
+    # reshape input array to be passed through segmentation
+    # (img_size x img_size x in_chans) -> (in_chans x img_size x img_size)
+    img_arr = np.transpose(img_arr, (1, 2, 0))
+    # compute segments array
+    segment_map = slic(img_arr, 
+                    n_segments = superpixels, 
+                    sigma=3, 
+                    channel_axis=2,
+                    #slic_zero=True
+                ) 
+    # store segment labels
+    segment_labels = np.unique(segment_map)
+
+    # get length of largest superpixel
+    largest = get_largest(segment_map, segment_labels)
+
+    return segment_map, segment_labels, largest
+
+
+
+def get_largest(self, smap, labels): 
+    """
+    function for getting size of largest superpixel
+
+    Parameters
+    ----------
+    smap: img_size x img_size array mapping each pixel to its superpixel/segment
+    labels: array containing unique segment labels
+
+    Returns
+    -------
+    largest: int representing size of largest superpixel
+    """
+    largest = 0
+    # # get list of unique superpixel labels
+    # unique = np.unique(segment_map)
+    # track occurences of each superpixel
+    v = [0 for i in labels]
+    tracker = dict(zip(np.unique(smap), v))
+
+    # loop through segment map and count each occurence
+    for i in smap.flatten():
+        # increment count of each sp label
+        tracker[i]+=1
+        # check if largest. If so, update largest
+        if(tracker[i] > largest):
+            largest = tracker[i]
+
+    # check that no values are missing
+    assert smap.flatten().shape[0] == sum(tracker.values()), 'Values are missing'
+
+    return largest
 
 class CIFAR10MeanEmbed(CIFAR10):
     """CIFAR10 with Mean Embedded Superpixels Computed at Load Time"""
@@ -44,7 +114,10 @@ class CIFAR10MeanEmbed(CIFAR10):
                 # get image as array to compute superpixels
                 img_arr = img.cpu().detach().numpy()
                 # compute superpixel segmentation
-                seg_map, seg_unique, largest_sp  = self._create_segments(img_arr)
+                seg_map, seg_unique, largest_sp  = create_segments(
+                    img_arr, 
+                    self.superpixels
+                    )
                 # get segment map as tensor
                 seg_map_tens = torch.from_numpy(seg_map)
                 # initialize empty list to store superpixels for image `x`
@@ -91,7 +164,10 @@ class CIFAR10MeanEmbed(CIFAR10):
             img_arr = img.cpu().detach().numpy()
 
             # compute superpixel segmentation
-            seg_map, seg_unique, largest_sp  = self._create_segments(img_arr)
+            seg_map, seg_unique, largest_sp  = create_segments(
+                img_arr,
+                self.superpixels
+                )
             # get segment map as tensor
             seg_map_tens = torch.from_numpy(seg_map)
             # initialize empty list to store superpixels for image `x`
@@ -133,97 +209,24 @@ class CIFAR10MeanEmbed(CIFAR10):
         #print("img.shape  ", img.shape, " masks.shape ", masks.shape, " target ", target)
         
         return (img, masks), target
+    
 
-    def _create_segments(self, img_arr):
-        """
-        Creates segments for one image at a time. Then parallelized accross
-        the entire batch.
-
-        Parameters
-        ----------
-        img_arr: np.Array() of an image, with shape 
-        (in_chans x img_size x img_size)
-
-
-        Returns
-        -------
-        segmented: torch.Tensor() with shape 
-        (num_patches x largest_patch_length*in_chans)
-        """
-        # reshape input array to be passed through segmentation
-        # (img_size x img_size x in_chans) -> (in_chans x img_size x img_size)
-        img_arr = np.transpose(img_arr, (1, 2, 0))
-        # compute segments array
-        segment_map = slic(img_arr, 
-                        n_segments = self.superpixels, 
-                        sigma=3, 
-                        channel_axis=2,
-                        #slic_zero=True
-                    ) 
-        # store segment labels
-        segment_labels = np.unique(segment_map)
-
-        # get length of largest superpixel
-        largest = self._get_largest(segment_map, segment_labels)
- 
-        return segment_map, segment_labels, largest
-
-
-
-    def _get_largest(self, smap, labels): 
-        """
-        function for getting size of largest superpixel
-
-        Parameters
-        ----------
-        smap: img_size x img_size array mapping each pixel to its superpixel/segment
-        labels: array containing unique segment labels
-
-        Returns
-        -------
-        largest: int representing size of largest superpixel
-        """
-        largest = 0
-        # # get list of unique superpixel labels
-        # unique = np.unique(segment_map)
-        # track occurences of each superpixel
-        v = [0 for i in labels]
-        tracker = dict(zip(np.unique(smap), v))
-
-        # loop through segment map and count each occurence
-        for i in smap.flatten():
-            # increment count of each sp label
-            tracker[i]+=1
-            # check if largest. If so, update largest
-            if(tracker[i] > largest):
-                largest = tracker[i]
-
-        # check that no values are missing
-        assert smap.flatten().shape[0] == sum(tracker.values()), 'Values are missing'
-
-        return largest    
-
-
-
-class ImageNetMeanEmbed(ImageFolder):
-    """CIFAR10 with Mean Embedded Superpixels Computed at Load Time"""
+class ImageFolderMeanEmbed(ImageFolderSampled):
+    """ImageNet with Mean Embedded Superpixels Computed at Load Time"""
 
     def __init__(
         self,
         superpixels, 
-        root='', 
-        train=True, 
-        download=False, 
-        transform=None, 
+        root='',  
+        transform=None,
+        sample_size=None 
         ):
-        super().__init__(root=root, 
-            train=train, 
-            download=download, 
-            transform=transform
+        super().__init__(
+            root=root,  
+            transform=transform,
+            sample_size=sample_size
         )
         self.superpixels = superpixels
-        self.transform = transform
-
         # pre-save superpixels
         # set device
         if False:
@@ -234,7 +237,10 @@ class ImageNetMeanEmbed(ImageFolder):
                 # get image as array to compute superpixels
                 img_arr = img.cpu().detach().numpy()
                 # compute superpixel segmentation
-                seg_map, seg_unique, largest_sp  = self._create_segments(img_arr)
+                seg_map, seg_unique, largest_sp  = create_segments(
+                    img_arr,
+                    self.superpixels
+                    )
                 # get segment map as tensor
                 seg_map_tens = torch.from_numpy(seg_map)
                 # initialize empty list to store superpixels for image `x`
@@ -281,7 +287,10 @@ class ImageNetMeanEmbed(ImageFolder):
             img_arr = img.cpu().detach().numpy()
 
             # compute superpixel segmentation
-            seg_map, seg_unique, largest_sp  = self._create_segments(img_arr)
+            seg_map, seg_unique, largest_sp  = create_segments(
+                img_arr,
+                self.superpixels
+                )
             # get segment map as tensor
             seg_map_tens = torch.from_numpy(seg_map)
             # initialize empty list to store superpixels for image `x`
@@ -319,73 +328,44 @@ class ImageNetMeanEmbed(ImageFolder):
             # set_trace()
         #print("img.shape  ", img.shape, " masks.shape ", masks.shape, " target ", target)
         
-        return (img, masks), target
-
-    def _create_segments(self, img_arr):
-        """
-        Creates segments for one image at a time. Then parallelized accross
-        the entire batch.
-
-        Parameters
-        ----------
-        img_arr: np.Array() of an image, with shape 
-        (in_chans x img_size x img_size)
+        return (img, masks), target 
 
 
-        Returns
-        -------
-        segmented: torch.Tensor() with shape 
-        (num_patches x largest_patch_length*in_chans)
-        """
-        # reshape input array to be passed through segmentation
-        # (img_size x img_size x in_chans) -> (in_chans x img_size x img_size)
-        img_arr = np.transpose(img_arr, (1, 2, 0))
-        # compute segments array
-        segment_map = slic(img_arr, 
-                        n_segments = self.superpixels, 
-                        sigma=3, 
-                        channel_axis=2,
-                        #slic_zero=True
-                    ) 
-        # store segment labels
-        segment_labels = np.unique(segment_map)
+class ImageFolderSampled(ImageFolder):
+    """
+    ImageFolder with downsampling capability
+    
+    Code from https://pytorch.org/vision/stable/_modules/torchvision/datasets/folder.html#ImageFolder
+    """
 
-        # get length of largest superpixel
-        largest = self._get_largest(segment_map, segment_labels)
- 
-        return segment_map, segment_labels, largest
+    def __init__(
+        self, 
+        root='',  
+        transform=None,
+        sample_size=None 
+        ):
+        super().__init__(root=root,  
+            transform=transform
+        )
+        classes, class_to_idx = super().find_classes(self.root)
+        if sample_size:
+            # downsample list and dictionary of classes and their indices
+            # according to `sample_size`
+            classes = classes[:sample_size]
+            d = class_to_idx
+            class_to_idx = {k: d[k] for k in d if d[k] < sample_size}
 
+        samples = super().make_dataset(
+            self.root, 
+            class_to_idx, 
+            self.extensions, 
+            self.is_valid_file
+        )
 
+        self.classes = classes
+        self.class_to_idx = class_to_idx
+        self.samples = samples
+        self.targets = [s[1] for s in samples]
 
-    def _get_largest(self, smap, labels): 
-        """
-        function for getting size of largest superpixel
-
-        Parameters
-        ----------
-        smap: img_size x img_size array mapping each pixel to its superpixel/segment
-        labels: array containing unique segment labels
-
-        Returns
-        -------
-        largest: int representing size of largest superpixel
-        """
-        largest = 0
-        # # get list of unique superpixel labels
-        # unique = np.unique(segment_map)
-        # track occurences of each superpixel
-        v = [0 for i in labels]
-        tracker = dict(zip(np.unique(smap), v))
-
-        # loop through segment map and count each occurence
-        for i in smap.flatten():
-            # increment count of each sp label
-            tracker[i]+=1
-            # check if largest. If so, update largest
-            if(tracker[i] > largest):
-                largest = tracker[i]
-
-        # check that no values are missing
-        assert smap.flatten().shape[0] == sum(tracker.values()), 'Values are missing'
-
-        return largest 
+        self.transform = transform
+    
