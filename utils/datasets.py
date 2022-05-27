@@ -16,7 +16,7 @@ from skimage.segmentation import slic
 from torchvision.datasets import CIFAR10, ImageFolder
 
 
-def create_segments(self, img_arr, superpixels):
+def create_segments(img_arr, superpixels):
     """
     Creates segments for one image at a time. Then parallelized accross
     the entire batch.
@@ -51,8 +51,7 @@ def create_segments(self, img_arr, superpixels):
     return segment_map, segment_labels, largest
 
 
-
-def get_largest(self, smap, labels): 
+def get_largest(smap, labels): 
     """
     function for getting size of largest superpixel
 
@@ -84,6 +83,7 @@ def get_largest(self, smap, labels):
     assert smap.flatten().shape[0] == sum(tracker.values()), 'Values are missing'
 
     return largest
+
 
 class CIFAR10MeanEmbed(CIFAR10):
     """CIFAR10 with Mean Embedded Superpixels Computed at Load Time"""
@@ -209,7 +209,57 @@ class CIFAR10MeanEmbed(CIFAR10):
         #print("img.shape  ", img.shape, " masks.shape ", masks.shape, " target ", target)
         
         return (img, masks), target
+
+
+class ImageFolderSampled(ImageFolder):
+    """
+    ImageFolder with downsampling based on number of classes
     
+    Code from https://pytorch.org/vision/stable/_modules/torchvision/datasets/folder.html#ImageFolder
+
+
+    Args
+    ----
+    root: (String) root directory of dataset
+    transform: (torchvision.transforms) transformation to be applied to data
+    sample_size: (int) desired number of classes in downsampled dataset
+
+    """
+
+    def __init__(
+        self, 
+        root='',  
+        transform=None,
+        sample_size=None 
+        ):
+        super().__init__(root=root,  
+            transform=transform
+        )
+        classes, class_to_idx = super().find_classes(self.root)
+        if sample_size:
+            # downsample list and dictionary of classes and their indices
+            # according to `sample_size`
+            classes = classes[:sample_size]
+            d = class_to_idx
+            class_to_idx = {k: d[k] for k in d if d[k] < sample_size}
+
+        samples = super().make_dataset(
+            self.root, 
+            class_to_idx, 
+            self.extensions, 
+            # self.is_valid_file
+        )
+
+        self.classes = classes
+        self.class_to_idx = class_to_idx
+        self.samples = samples
+        self.targets = [s[1] for s in samples]
+
+        self.transform = transform
+    
+    def __len__(self):
+        return super().__len__()   
+
 
 class ImageFolderMeanEmbed(ImageFolderSampled):
     """ImageNet with Mean Embedded Superpixels Computed at Load Time"""
@@ -329,43 +379,3 @@ class ImageFolderMeanEmbed(ImageFolderSampled):
         #print("img.shape  ", img.shape, " masks.shape ", masks.shape, " target ", target)
         
         return (img, masks), target 
-
-
-class ImageFolderSampled(ImageFolder):
-    """
-    ImageFolder with downsampling capability
-    
-    Code from https://pytorch.org/vision/stable/_modules/torchvision/datasets/folder.html#ImageFolder
-    """
-
-    def __init__(
-        self, 
-        root='',  
-        transform=None,
-        sample_size=None 
-        ):
-        super().__init__(root=root,  
-            transform=transform
-        )
-        classes, class_to_idx = super().find_classes(self.root)
-        if sample_size:
-            # downsample list and dictionary of classes and their indices
-            # according to `sample_size`
-            classes = classes[:sample_size]
-            d = class_to_idx
-            class_to_idx = {k: d[k] for k in d if d[k] < sample_size}
-
-        samples = super().make_dataset(
-            self.root, 
-            class_to_idx, 
-            self.extensions, 
-            self.is_valid_file
-        )
-
-        self.classes = classes
-        self.class_to_idx = class_to_idx
-        self.samples = samples
-        self.targets = [s[1] for s in samples]
-
-        self.transform = transform
-    
