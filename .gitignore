@@ -6,7 +6,7 @@
 data/
 
 # Batch Script
-*.SBATCH
+
 
 # Slurm output
 *.out

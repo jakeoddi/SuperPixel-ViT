@@ -61,7 +61,7 @@ emb_dropout = 0.1
 
 cifar = False
 imagenet = True
-sp_arg = True
+sp_arg = False
 # ----------------
 
 
