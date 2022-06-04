@@ -36,12 +36,6 @@ import torch.nn.init as init
 
 from einops import rearrange
 
-from skimage.segmentation import slic
-from skimage.segmentation import mark_boundaries
-from skimage.util import img_as_float
-from skimage import io
-
-
 from embed import superpixel_embed
 from utils import datasets
 
@@ -61,7 +55,7 @@ emb_dropout = 0.1
 
 cifar = False
 imagenet = True
-sp_arg = False
+sp_arg = True
 # ----------------
 
 
@@ -355,7 +349,7 @@ mixup=1    # add mixup augumentations
 #net=vit
 bs=256 # up from 64
 n_epochs=100
-cos=0      # Train with cosine annealing scheduling
+cos=1      # Train with cosine annealing scheduling
 
 if cos:
     from warmup_scheduler import GradualWarmupScheduler
@@ -405,10 +399,10 @@ if sp_arg:
         classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
         
     elif imagenet:
-        trainset = datasets.ImageFolderMeanEmbed(superpixels=196, root='/imagenet/train', transform=transform_train)
+        trainset = datasets.ImageFolderSampledMeanEmbedAllClasses(superpixels=196, root='/imagenet/train', transform=transform_train)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
 
-        testset = datasets.ImageFolderMeanEmbed(superpixels=196, root='/imagenet/val', transform=transform_test)
+        testset = datasets.ImageFolderMeanEmbedAllClasses(superpixels=196, root='/imagenet/val', transform=transform_test) # add a param to remove sampling
         testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
 else:
     if cifar:
@@ -419,10 +413,10 @@ else:
         testloader = torch.utils.data.DataLoader(testset, batch_size=200, shuffle=False, num_workers=0)
 
     elif imagenet:
-        trainset = datasets.ImageFolderSampled(root='/imagenet/train', transform=transform_train, sample_size=50)
+        trainset = datasets.ImageFolderSampledAllClasses(root='/imagenet/train', transform=transform_train)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
 
-        testset = datasets.ImageFolderSampled(root='/imagenet/val', transform=transform_test, sample_size=50)
+        testset = datasets.ImageFolder(root='/imagenet/val', transform=transform_test)
         testloader = torch.utils.data.DataLoader(testset, batch_size=200, shuffle=False, num_workers=0)
 
 
@@ -499,12 +493,12 @@ if opt == "adam":
     optimizer = optim.Adam(net.parameters(), lr)
 elif opt == "sgd":
     optimizer = optim.SGD(net.parameters(), lr)    
-if not cos:
-    from torch.optim import lr_scheduler
-    scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3, verbose=True, min_lr=1e-3*1e-5, factor=0.1)
-else:
-    scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs-1)
-    scheduler = GradualWarmupScheduler(optimizer, multiplier=10, total_epoch=1, after_scheduler=scheduler_cosine)
+# if not cos:
+#     from torch.optim import lr_scheduler
+#     scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3, verbose=True, min_lr=1e-3*1e-5, factor=0.1)
+# else:
+#     scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs-1)
+#     scheduler = GradualWarmupScheduler(optimizer, multiplier=10, total_epoch=1, after_scheduler=scheduler_cosine)
 
 # ------------------------------
 
@@ -593,8 +587,8 @@ def test(epoch):
                     % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))            
     
     # Update scheduler
-    if not cos:
-        scheduler.step(test_loss)
+    # if not cos:
+    #     scheduler.step(test_loss)
     
     # Save checkpoint.
     acc = 100.*correct/total
@@ -626,8 +620,8 @@ def main():
         trainloss = train(epoch)
         val_loss, acc = test(epoch)
         
-        if cos:
-            scheduler.step(epoch-1)
+        # if cos:
+        #     scheduler.step(epoch-1)
         
         list_loss.append(val_loss)
         list_acc.append(acc)
