@@ -30,8 +30,8 @@ def main():
     https://pytorch.org/vision/stable/_modules/torchvision/datasets/folder.html#ImageFolder
     """
     np.random.seed(2022)
-    ROOT = '/imagenet/train'
-    outfile = 'samples.npy'
+    ROOT = '/imagenet/val'
+    outfile = 'samples-val.npy'
     samples = []
     sample_size = 100
 
@@ -46,11 +46,12 @@ def main():
             continue
         for root, _, fnames in sorted(os.walk(target_dir, followlinks=True)):
             if len(fnames) < sample_size:
-                raise ValueError("Fewer than 100 samples in class")
-
-            # get 100 samples
-            rand_indices = np.random.choice(len(fnames), sample_size, replace=False)
-            fnames = [fnames[i] for i in rand_indices]
+                # raise ValueError("Fewer than 100 samples in class")
+                print("Fewer than 100 samples in class")
+            else:
+                # get 100 samples
+                rand_indices = np.random.choice(len(fnames), sample_size, replace=False)
+                fnames = [fnames[i] for i in rand_indices]
 
             # add to list of all samples
             samples.extend(fnames)

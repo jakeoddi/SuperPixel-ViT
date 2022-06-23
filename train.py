@@ -515,10 +515,15 @@ def train(epoch):
         for batch_idx, ((inputs, masks), targets) in enumerate(trainloader):
             start_time = time.time()
             inputs, masks, targets = inputs.to(device), masks.to(device), targets.to(device)
+            to_device_time = time.time() - start_time # time
+            new_time = time.time() # time
             optimizer.zero_grad()
             outputs = net(inputs, masks)
+            forward_pass_time = time.time() - new_time # time
             loss = criterion(outputs, targets)
+            new_time = time.time() # time
             loss.backward()
+            backward_time = time.time() - new_time # time
             optimizer.step()
 
             train_loss += loss.item()
@@ -527,24 +532,43 @@ def train(epoch):
             correct += predicted.eq(targets).sum().item()
             accuracy = predicted.eq(targets).sum().item()
             end_time = time.time() - start_time
+            
+            # print('to device time: {0}    forward_pass_time: {1}     backward time: {2}'.format(
+            #     to_device_time,
+            #     forward_pass_time,
+            #     backward_time
+            # ))
             print('batch %i/%i loss %.3f acc %.3f time %.2f' % (batch_idx, num_batches, loss.item(), accuracy, end_time))
             progress_bar(batch_idx, len(trainloader), 'Train Loss: %.3f | Train Acc: %.3f%% (%d/%d)'
                % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
         return train_loss/(batch_idx+1)
     else:
         for batch_idx, (inputs, targets) in enumerate(trainloader):
+            start_time = time.time()
             inputs, targets = inputs.to(device), targets.to(device)
+            to_device_time = time.time() - start_time # time
+            new_time = time.time() # time
             optimizer.zero_grad()
             outputs = net(inputs)
+            forward_pass_time = time.time() - new_time # time
             loss = criterion(outputs, targets)
+            new_time = time.time() # time
             loss.backward()
+            backward_time = time.time() - new_time # time
             optimizer.step()
 
             train_loss += loss.item()
             _, predicted = outputs.max(1)
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
+            end_time = time.time() - start_time
 
+            print('to device time: {0}    forward_pass_time: {1}     backward time: {2}'.format(
+                to_device_time,
+                forward_pass_time,
+                backward_time
+            ))
+            print('total time:', end_time)
             progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
                 % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
         return train_loss/(batch_idx+1)       
@@ -618,7 +642,10 @@ def main():
     list_acc = []
     for epoch in range(start_epoch, n_epochs):
         trainloss = train(epoch)
+        start_time = time.time()
         val_loss, acc = test(epoch)
+        test_time = time.time() - start_time
+        print('test time:', test_time)
         
         # if cos:
         #     scheduler.step(epoch-1)

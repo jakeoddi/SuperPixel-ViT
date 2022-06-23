@@ -169,10 +169,11 @@ class SuperPixelMeanEmbed(SuperPixelEmbed):
         start_time = time.time()
         # get batch size
         batch_size = X.size()[0]
-
+        print('X.size():',X.size()) # DEBUG
         #comute pixel-wise embedding with 1x1 kernel convolution embed up to 16 dims
         if self.conv:
             x_emb = self.conv_proj(X)
+            print('x_emb.size():',x_emb.size()) # DEBUG
         # initialize empty list to store superpixel matrices for all images in batch `i`
         batch_sps = []
         # compute segment map for each embedded image in batch
@@ -180,14 +181,32 @@ class SuperPixelMeanEmbed(SuperPixelEmbed):
             # get masks for image at index i
             masks_i = masks[i]
             # compute mean embedding for each superpixel
-            im_sps = [x[:,mask].mean(dim=1) for mask in masks_i]
+            # im_sps = [x[:,mask].mean(dim=1) for mask in masks_i] - ORIGINAL
+            im_sps = []
+            for k in masks_i.keys():
+                # get number of pixels in superpixel to use in computing the average
+                num_pixels = masks_i[k]
+                # initialize empty running sum row vector with C columns, where
+                # C is the number of channels
+                curSum = torch.zeros(x_emb.size()[0])
+                # loop over the x and y coords of each pixel in the superpixel
+                for pix_x, pix_y in masks_i[k]:
+                    # add curent pixel value to running sum
+                    curSum += x[:,pix_x, pix_y]
+                # compute the average for each channel
+                avg = curSum/num_pixels
+                # add to list of sp embeddings
+                im_sps.append(avg)
+            print('len(im_sps):', len(im_sps)) #DEBUG
             # stack superpixels for image `x`
             im_sps = torch.stack(im_sps, dim=0)
+            print('im_sps.size():', im_sps.size()) #DEBUG
             # add to list of images
             batch_sps.append(im_sps)
                 
         # stack batches for batch `X`
         batch_sps = torch.stack(batch_sps)
+        print('batch_sps.size()', batch_sps.size()) #DEBUG
 
 #         if self.norm:   THIS CAUSED PROBLEMS, FIX LATER
 #             batch_sps = norm_layer(batch_sps)

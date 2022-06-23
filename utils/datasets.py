@@ -8,10 +8,12 @@ Author: Jake Oddi
 Last Modified: 05-20-2022
 """
 import os
+import time
 import torch
 import random
-from tqdm import tqdm
 import numpy as np
+from tqdm import tqdm
+from collections import defaultdict
 from skimage.segmentation import slic
 from torchvision.datasets import CIFAR10, ImageFolder, folder
 from typing import Any, Callable, cast, Dict, List, Optional, Tuple
@@ -279,54 +281,56 @@ class CIFAR10MeanEmbed(CIFAR10):
         return (img, masks), target
 
 
-class ImageFolderSampled(ImageFolder):
-    """
-    ImageFolder with downsampling based on number of classes
+# class ImageFolderSampled(ImageFolder):
+#     """
+#     ImageFolder with downsampling based on number of classes
     
-    Code from https://pytorch.org/vision/stable/_modules/torchvision/datasets/folder.html#ImageFolder
+#     Code from https://pytorch.org/vision/stable/_modules/torchvision/datasets/folder.html#ImageFolder
 
 
-    Args
-    ----
-    root: (String) root directory of dataset
-    transform: (torchvision.transforms) transformation to be applied to data
-    sample_size: (int) desired number of classes in downsampled dataset
+#     DO NOT USE
 
-    """
+#     Args
+#     ----
+#     root: (String) root directory of dataset
+#     transform: (torchvision.transforms) transformation to be applied to data
+#     sample_size: (int) desired number of classes in downsampled dataset
 
-    def __init__(
-        self, 
-        root='',  
-        transform=None,
-        sample_size=None 
-        ):
-        super().__init__(root=root,  
-            transform=transform
-        )
-        classes, class_to_idx = super().find_classes(self.root)
-        if sample_size:
-            # downsample list and dictionary of classes and their indices
-            # according to `sample_size`
-            classes = classes[:sample_size]
-            d = class_to_idx
-            class_to_idx = {k: d[k] for k in d if d[k] < sample_size}
+#     """
 
-        samples = super().make_dataset(
-            self.root, 
-            class_to_idx, 
-            self.extensions, 
-            # self.is_valid_file
-        )
+#     def __init__(
+#         self, 
+#         root='',  
+#         transform=None,
+#         sample_size=None 
+#         ):
+#         super().__init__(root=root,  
+#             transform=transform
+#         )
+#         classes, class_to_idx = super().find_classes(self.root)
+#         if sample_size:
+#             # downsample list and dictionary of classes and their indices
+#             # according to `sample_size`
+#             classes = classes[:sample_size]
+#             d = class_to_idx
+#             class_to_idx = {k: d[k] for k in d if d[k] < sample_size}
 
-        self.classes = classes
-        self.class_to_idx = class_to_idx
-        self.samples = samples
-        self.targets = [s[1] for s in samples]
+#         samples = super().make_dataset(
+#             self.root, 
+#             class_to_idx, 
+#             self.extensions, 
+#             # self.is_valid_file
+#         )
 
-        self.transform = transform
+#         self.classes = classes
+#         self.class_to_idx = class_to_idx
+#         self.samples = samples
+#         self.targets = [s[1] for s in samples]
+
+#         self.transform = transform
     
-    def __len__(self):
-        return super().__len__()   
+#     def __len__(self):
+#         return super().__len__()   
 
 class ImageFolderSampledAllClasses(ImageFolder):
     """
@@ -337,15 +341,15 @@ class ImageFolderSampledAllClasses(ImageFolder):
     def __init__(self, root='', transform=None, sample=True):
         super().__init__(
             root=root, 
-            transform=transform, 
+            transform=transform,
         )
         if sample:
             classes, class_to_idx = super().find_classes(self.root)
 
             samples = self.make_dataset(
-                self.root,
-                class_to_idx,
-                self.extensions
+                directory=self.root,
+                class_to_idx=class_to_idx,
+                extensions=self.extensions,
             )
 
     @staticmethod
@@ -397,13 +401,11 @@ class ImageFolderSampledMeanEmbedAllClasses(ImageFolderSampledAllClasses):
         self,
         superpixels, 
         root='',  
-        transform=None,
-        # sample=True 
+        transform=None, 
         ):
         super().__init__(
             root=root,  
             transform=transform,
-            # sample=sample
         )
         self.superpixels = superpixels
         # pre-save superpixels
@@ -452,6 +454,8 @@ class ImageFolderSampledMeanEmbedAllClasses(ImageFolderSampledAllClasses):
     def __getitem__(self, index):
         img, target = super().__getitem__(index)
 
+        start_time = time.time()
+
         # set device
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         if False: # use pre-computed masks
@@ -464,48 +468,71 @@ class ImageFolderSampledMeanEmbedAllClasses(ImageFolderSampledAllClasses):
         else:
              # get image as array to compute superpixels
             img_arr = img.cpu().detach().numpy()
-
+            new_time = time.time()
             # compute superpixel segmentation
             seg_map, seg_unique, largest_sp  = create_segments(
                 img_arr,
                 self.superpixels
                 )
+            slic_time = time.time() - new_time # time
             # get segment map as tensor
             seg_map_tens = torch.from_numpy(seg_map)
             # initialize empty list to store superpixels for image `x`
-            masks = []
+            masks = defaultdict(list) # dictionary<int, [(int, int)]>
+            new_time = time.time()
+            # get masks for mean embedding for each superpixel
+            # for m in seg_unique:
+            #     # compute mask with only the value of the mth superpixel
+            #     mask = torch.eq(seg_map_tens, m)#.to(device)
+            #     # ensuring the input is on device
 
-            # compute mean embedding for each superpixel
-            for m in seg_unique:
-                # compute mask with only the value of the mth superpixel
-                mask = torch.eq(seg_map_tens, m)#.to(device)
-                # ensuring the input is on device
+            #     # add to list of masks
+            #     masks.append(mask)
 
-                # add to list of masks
-                masks.append(mask)
+            # loop over each pixel in image
+            for i in range(seg_map.shape[0]):
+                for j in range(seg_map.shape[1]):
+                    # sp value at [i, j] is key, the coordinates tuple (i, j)
+                    # is then appended to a list at that dictionary value
+                    masks[seg_map[i][j]].append((i, j)) # this is like 3x slower
+
+            feature_time = time.time() - new_time # time
             # duplicate masks to make up to 64: Elena
             # case not enough superpixels
             while len(masks) < self.superpixels:
+                # print('too few','len(masks):', len(masks), '   masks.keys()[-1]:', list(masks.keys())[-1])                
                 rand_ind = random.sample(range(len(masks)), self.superpixels-len(masks))
-                masks.append(masks[rand_ind[0]])
+                next_ind = len(masks) + 1
+                masks[next_ind] = masks[rand_ind[0]]
             
             # case too many superpixels
-            if len(masks) > self.superpixels:
-                masks = masks[:self.superpixels]
+            while len(masks) > self.superpixels:
+                # print('too many','len(masks):', len(masks), '   masks.keys()[-1]:', list(masks.keys())[-1])
+                del masks[len(masks)-1] 
 
             # stack superpixels for image `x`
-            masks = torch.stack(masks)
-            #print('HERE')
+            # masks = torch.stack(masks)
 
-            if masks.shape[0]!=self.superpixels:
-                print(masks.shape[0])
+            if len(masks)!=self.superpixels:
+                print(len(masks))
                 from pdb import set_trace
                 set_trace()
-                assert(masks.shape[0]==self.superpixels) 
+                assert(len(masks)==self.superpixels) 
 
-            # from pdb import set_trace
-            # set_trace()
         #print("img.shape  ", img.shape, " masks.shape ", masks.shape, " target ", target)
+        # print('slic time: {0}       compute feature time: {1}'.format(
+        #     slic_time,
+        #     feature_time 
+        #     )
+        # )
+        pix_count = 0
+        for v in masks.values():
+            pix_count += len(v)
+        
+        if pix_count != img.size()[0]**2:
+            print('pix_count:',pix_count)
+        
+        print('img.size():', img.size(), 'len(masks):', len(masks), 'target.size():', target)
         
         return (img, masks), target 
 
@@ -570,6 +597,8 @@ class ImageFolderMeanEmbedAllClasses(ImageFolder):
     def __getitem__(self, index):
         img, target = super().__getitem__(index)
 
+        start_time = time.time()
+
         # set device
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         if False: # use pre-computed masks
@@ -582,47 +611,66 @@ class ImageFolderMeanEmbedAllClasses(ImageFolder):
         else:
              # get image as array to compute superpixels
             img_arr = img.cpu().detach().numpy()
-
+            new_time = time.time()
             # compute superpixel segmentation
             seg_map, seg_unique, largest_sp  = create_segments(
                 img_arr,
                 self.superpixels
                 )
+            slic_time = time.time() - new_time # time
             # get segment map as tensor
             seg_map_tens = torch.from_numpy(seg_map)
             # initialize empty list to store superpixels for image `x`
-            masks = []
+            masks = defaultdict(list) # dictionary<int, [(int, int)]>
+            new_time = time.time()
+            # get masks for mean embedding for each superpixel
+            # for m in seg_unique:
+            #     # compute mask with only the value of the mth superpixel
+            #     mask = torch.eq(seg_map_tens, m)#.to(device)
+            #     # ensuring the input is on device
 
-            # compute mean embedding for each superpixel
-            for m in seg_unique:
-                # compute mask with only the value of the mth superpixel
-                mask = torch.eq(seg_map_tens, m)#.to(device)
-                # ensuring the input is on device
+            #     # add to list of masks
+            #     masks.append(mask)
 
-                # add to list of masks
-                masks.append(mask)
+            # loop over each pixel in image
+            for i in range(seg_map.shape[0]):
+                for j in range(seg_map.shape[1]):
+                    # sp value at [i, j] is key, the coordinates tuple (i, j)
+                    # is then appended to a list at that dictionary value
+                    masks[seg_map[i][j]].append((i, j)) # this is like 3x slower
+
+            feature_time = time.time() - new_time # time
             # duplicate masks to make up to 64: Elena
             # case not enough superpixels
             while len(masks) < self.superpixels:
+                # print('too few','len(masks):', len(masks), '   masks.keys()[-1]:', list(masks.keys())[-1])                
                 rand_ind = random.sample(range(len(masks)), self.superpixels-len(masks))
-                masks.append(masks[rand_ind[0]])
+                next_ind = len(masks) + 1
+                masks[next_ind] = masks[rand_ind[0]]
             
             # case too many superpixels
-            if len(masks) > self.superpixels:
-                masks = masks[:self.superpixels]
+            while len(masks) > self.superpixels:
+                # print('too many','len(masks):', len(masks), '   masks.keys()[-1]:', list(masks.keys())[-1])
+                del masks[len(masks)-1] 
 
             # stack superpixels for image `x`
-            masks = torch.stack(masks)
+            # masks = torch.stack(masks)
             #print('HERE')
 
-            if masks.shape[0]!=self.superpixels:
-                print(masks.shape[0])
+            if len(masks)!=self.superpixels:
+                print(len(masks))
                 from pdb import set_trace
                 set_trace()
-                assert(masks.shape[0]==self.superpixels) 
+                assert(len(masks)==self.superpixels) 
 
             # from pdb import set_trace
             # set_trace()
         #print("img.shape  ", img.shape, " masks.shape ", masks.shape, " target ", target)
+        print('slic time: {0}       compute feature time: {1}'.format(
+            slic_time,
+            feature_time 
+            )
+        )
+
         
-        return (img, masks), target 
+        return (img, [masks]), target 
