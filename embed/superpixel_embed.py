@@ -185,15 +185,19 @@ class SuperPixelMeanEmbed(SuperPixelEmbed):
             im_sps = []
             for k in masks_i.keys():
                 # get number of pixels in superpixel to use in computing the average
-                num_pixels = masks_i[k]
+                num_pixels = len(masks_i[k])
                 # initialize empty running sum row vector with C columns, where
                 # C is the number of channels
-                curSum = torch.zeros(x_emb.size()[0])
+                # curSum = torch.zeros(x_emb.size()[0])
+                curSum = torch.zeros(x_emb.size()[1])
+                curSum = curSum.cuda()
                 # loop over the x and y coords of each pixel in the superpixel
                 for pix_x, pix_y in masks_i[k]:
                     # add curent pixel value to running sum
                     curSum += x[:,pix_x, pix_y]
                 # compute the average for each channel
+                #from pdb import set_trace
+                #set_trace()
                 avg = curSum/num_pixels
                 # add to list of sp embeddings
                 im_sps.append(avg)

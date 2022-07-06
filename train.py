@@ -301,7 +301,6 @@ class ViT(nn.Module):
         mask: self attention mask
         """
         p = self.patch_size
-        
 
         if sp_arg:
             x = self.patch_to_embedding(img, masks)
@@ -399,11 +398,20 @@ if sp_arg:
         classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
         
     elif imagenet:
+#         print("IMAGENET SP")
+#         import sys
+#         sys.exit(0)
         trainset = datasets.ImageFolderSampledMeanEmbedAllClasses(superpixels=196, root='/imagenet/train', transform=transform_train)
-        trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
+#         trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
+
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0, collate_fn=lambda x: x)
+
 
         testset = datasets.ImageFolderMeanEmbedAllClasses(superpixels=196, root='/imagenet/val', transform=transform_test) # add a param to remove sampling
-        testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
+#         testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0, collate_fn=lambda x: x)
+
+
 else:
     if cifar:
         trainset = torchvision.datasets.CIFAR10(root='../data', train=True, download=True, transform=transform_train)
@@ -474,7 +482,7 @@ elif imagenet:
 
 net = net.to(device)
 if device == 'cuda':
-    net = torch.nn.DataParallel(net) # make parallel
+    # net = torch.nn.DataParallel(net) # make parallel
     cudnn.benchmark = True
 
 if resume:
@@ -512,9 +520,29 @@ def train(epoch):
     total = 0
     num_batches = len(trainloader)
     if sp_arg:
-        for batch_idx, ((inputs, masks), targets) in enumerate(trainloader):
+#         output = next(iter(trainloader))
+#         tmp = enumerate(trainloader)
+#         tt = next(tmp)
+        
+#         batch_idx,all_data = tt
+#         inputs = torch.stack([all_data[i][0][0] for i in range(len(all_data))])
+#         masks = [all_data[i][0][1] for i in range(len(all_data))]
+#         targets = torch.Tensor([all_data[i][1] for i in range(len(all_data))])
+        #from pdb import set_trace
+        #set_trace()
+
+        
+#         for batch_idx, ((inputs, masks), targets) in enumerate(trainloader):
+#             start_time = time.time()
+#             inputs, masks, targets = inputs.to(device), masks.to(device), targets.to(device)
+        for batch_idx, all_data in enumerate(trainloader):
             start_time = time.time()
-            inputs, masks, targets = inputs.to(device), masks.to(device), targets.to(device)
+            inputs = torch.stack([all_data[i][0][0] for i in range(len(all_data))])
+            masks = [all_data[i][0][1] for i in range(len(all_data))]
+            targets = torch.Tensor([all_data[i][1] for i in range(len(all_data))])
+    
+            inputs, targets = inputs.to(device), targets.to(device)
+
             to_device_time = time.time() - start_time # time
             new_time = time.time() # time
             optimizer.zero_grad()
